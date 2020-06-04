@@ -693,7 +693,7 @@ cdef class BayesianNetwork(GraphModel):
 
 		return self
   
-	def sample(self, n=1, evidence={}):
+	def sample(self, n=1, burnin=100, evidence={}):
 		"""Sample the network, optionally given some evidence. This is based on pull request #650
 		in the main repo with fixes and modifications.
 
@@ -701,6 +701,8 @@ cdef class BayesianNetwork(GraphModel):
 		----------
 		n : int, optional
 			  The number of samples to generate. Defaults to 1.
+		burnin : int, optional
+              The number of initial samples to disregard before drawing each. Defaults to 100.
 		evidence : dict, optional
 			  Evidence to set constant while samples are generated.
 
@@ -709,27 +711,29 @@ cdef class BayesianNetwork(GraphModel):
 		a nested list of sampled states
 		"""
 
-		col = {node.name:num for num,node in enumerate(self.states)}
-		non_evidence_vars = (node for node in self.states if node.name not in evidence.keys())
-		samples = [ [ node.distribution.sample() for node in self.states] ]
-		for state, val in evidence.items():
-			samples[0][col[state]] = val
-		state_num = 0
+		col = {node.name : num for num,node in enumerate(self.states)}
+		samples = []
 		for i in range(n):
-			state_num = (state_num + 1) % len(self.states)
-			while str(state_num) in evidence.keys():
+			sample = [ node.distribution.sample() for node in self.states ]
+			for state, val in evidence.items():
+				sample[col[state]] = val
+			state_num = 0
+			for j in range(burnin):
 				state_num = (state_num + 1) % len(self.states)
-			samples.append(samples[-1].copy())
-			prev_state = {state.name : samples[-2][col[state.name]]
-				for state in self.states if state.name != str(state_num)
-			}
-			for node in self.states:
-				if node.name == str(state_num):
-					samples[-1][state_num] = node.distribution.sample(
-						None if node.distribution.name == "DiscreteDistribution"
-						else prev_state
-					)
-					break
+				while str(state_num) in evidence.keys():
+					state_num = (state_num + 1) % len(self.states)
+				prev_state = {state.name : sample[col[state.name]]
+					for state in self.states if state.name != str(state_num)
+				}
+				for node in self.states:
+					if node.name == str(state_num):
+						sample[state_num] = node.distribution.sample(
+							None if node.distribution.name == "DiscreteDistribution"
+							else prev_state
+						)
+						break
+			samples.append(sample)
+			
 		return samples
 
 	def summarize(self, X, weights=None):
